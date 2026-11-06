@@ -31,8 +31,10 @@ volatile ZERO_Params_t g_zero = {
     0
 };
 
-/* ---------- 串口调试打印开关 ---------- */
-#define UART_DEBUG          1
+/* ---------- 串口调试打印开关 ----------
+ * 注意: printf 和协议帧共用同一条 RS-485 总线, 打开后会往线上插入
+ * "FZ =..." 这样的非协议字节。调试时用, 正式通讯请保持 0。 */
+#define UART_DEBUG          0
 
 /* 供 Debug 的 watch 窗口直接观察。volatile 防止被优化掉。 */
 volatile float g_fz_mv;                         /* 传感器输入电压(FZ) */
@@ -82,12 +84,14 @@ int main(void)
     adc_init();
 //    eeprom_init();
 
+    rs485_init();                       /* 从 AT24C04 读回 a/b/c 标定系数 */
+
     zero_init();
 
     uart_rx_count = 0;
     uart_tx_count = 0;
 
-    printf("hello world\r\n");
+    printf("hello world111\r\n");
 
     while(1) {
         /* ---- 1) 24位补码 -> 有符号, 换算成传感器输入电压(mV) ---- */
@@ -102,15 +106,19 @@ int main(void)
             g_fz_mv -= g_zero.fz_zero_v;
         }
 
-#if (UART_DEBUG)
-        /* ---- 4) 串口打印: 仅在新样本到达时打印, 不重复刷同一组 ----
-         * 全部用整数打印(%d), 不用 %f: MicroLIB 的 printf 浮点支持要额外配置,
-         * 而这里 mV 精度到 1mV 已经足够观察。 */
+        /* ---- 4) 协议上报: 每来一个新采样(50Hz)处理一次 ----
+         * 连续发送/单次采集的应答都在这里按当前格式(HEX/ASCII)发出。
+         * 放在 uart_process 之前, 让刚收到的指令在下一拍就生效。 */
         if (g_adc_seq != last_seq) {
             last_seq = g_adc_seq;
-            printf("FZ =%fmV\r\n", g_fz_mv);
-        }
+
+            rs485_report(g_fz_mv);
+
+#if (UART_DEBUG)
+            /* 调试打印用整数, 避免 MicroLIB 浮点格式化的开销 */
+            printf("FZ =%dmV\r\n", (int)g_fz_mv);
 #endif
+        }
 
         uart_process();
     }

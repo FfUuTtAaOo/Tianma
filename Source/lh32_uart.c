@@ -146,6 +146,23 @@ void uart_send(const uint8_t *data, uint16_t len)
     RS485_RX;                                                   /* 释放总线, 切回接收 */
 }
 
+/* 运行时切换波特率(LHL_UART_SetBaudrate 只改 DLL/DLM/DLF, IER 不变)。
+ * 调用者必须已经把应答帧发完: 这里再等一次 TEMT, 防止最后一个字节
+ * 还在移位寄存器里时就把分频改掉。 */
+void uart_set_baud(uint32_t baud)
+{
+    if (baud == 0u)
+    {
+        return;
+    }
+
+    while ((pUART0->LSR & UART_FLAG_TEMT) == 0u)
+    {
+    }
+
+    (void)LHL_UART_SetBaudrate(pUART0, baud);
+}
+
 /* printf 重定向(见 Include/lh32m0xx_lhl.h, 已关闭库里的默认实现)。
  * MicroLIB 的 printf 是逐字符调 fputc, 所以这里每发一个字节都要自己控制方向;
  * 调试打印用, 命令应答请走 uart_send(整帧一个发送窗口)。 */

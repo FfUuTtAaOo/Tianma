@@ -157,34 +157,18 @@
         <Bp>
           <Number>0</Number>
           <Type>0</Type>
-          <LineNumber>49</LineNumber>
+          <LineNumber>346</LineNumber>
           <EnabledFlag>1</EnabledFlag>
-          <Address>134221876</Address>
+          <Address>134224230</Address>
           <ByteObject>0</ByteObject>
           <HtxType>0</HtxType>
           <ManyObjects>0</ManyObjects>
           <SizeOfObject>0</SizeOfObject>
           <BreakByAccess>0</BreakByAccess>
           <BreakIfRCount>1</BreakIfRCount>
-          <Filename>..\..\Source\lh32_adc.c</Filename>
+          <Filename>..\..\Source\rs485_cmd.c</Filename>
           <ExecCommand></ExecCommand>
-          <Expression>\\GPIO\../../Source/lh32_adc.c\49</Expression>
-        </Bp>
-        <Bp>
-          <Number>1</Number>
-          <Type>0</Type>
-          <LineNumber>109</LineNumber>
-          <EnabledFlag>1</EnabledFlag>
-          <Address>134222458</Address>
-          <ByteObject>0</ByteObject>
-          <HtxType>0</HtxType>
-          <ManyObjects>0</ManyObjects>
-          <SizeOfObject>0</SizeOfObject>
-          <BreakByAccess>0</BreakByAccess>
-          <BreakIfRCount>1</BreakIfRCount>
-          <Filename>..\..\Source\main.c</Filename>
-          <ExecCommand></ExecCommand>
-          <Expression>\\GPIO\../../Source/main.c\109</Expression>
+          <Expression>\\GPIO\../../Source/rs485_cmd.c\346</Expression>
         </Bp>
       </Breakpoint>
       <WatchWindow1>
@@ -197,6 +181,21 @@
           <count>1</count>
           <WinNumber>1</WinNumber>
           <ItemText>g_zero</ItemText>
+        </Ww>
+        <Ww>
+          <count>2</count>
+          <WinNumber>1</WinNumber>
+          <ItemText>coef_a</ItemText>
+        </Ww>
+        <Ww>
+          <count>3</count>
+          <WinNumber>1</WinNumber>
+          <ItemText>coef_b</ItemText>
+        </Ww>
+        <Ww>
+          <count>4</count>
+          <WinNumber>1</WinNumber>
+          <ItemText>coef_c</ItemText>
         </Ww>
       </WatchWindow1>
       <Tracepoint>

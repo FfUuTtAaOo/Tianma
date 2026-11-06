@@ -19,4 +19,8 @@ void uart_init(void);
 /* 阻塞式发送一段数据(等 THRE 后再写 THR, 不会覆盖还没发完的字节) */
 void uart_send(const uint8_t *data, uint16_t len);
 
+/* 运行时改波特率(指令 0x04)。只改分频, 不动 GPIO/中断配置。
+ * 调用前必须保证待发的数据已经完全移出(等 TEMT)。 */
+void uart_set_baud(uint32_t baud);
+
 #endif
