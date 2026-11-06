@@ -18,7 +18,9 @@
 /* Define to use LHL Peripheral Drivers --------------------------------------*/
 #define USE_LHL_DRIVERS                 /* 使用LHL驱动库                       */
 
-#define LHL_UART_PRINTF pUART0          /* !!! 启用此定义则调用lhl.c的printf实现 */
+/* 关闭库里的 printf 实现: 本工程的 printf 重定向在 lh32_uart.c 的 fputc 里,
+ * 因为 UART 外接 WS3085(RS485), 发送前必须手动拉高 DE, 库里逐字节直接写 UART 的方式做不到。 */
+//#define LHL_UART_PRINTF pUART0          /* !!! 启用此定义则调用lhl.c的printf实现 */
 
 /* Select the right Package and Pinout ---------------------------------------*/
 //#define QFN48_PKG

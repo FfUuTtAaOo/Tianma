@@ -118,7 +118,7 @@ void DMA1_CH0_IRQHandler(void)
 
     LHL_DMA_Start(&hDMA0);
 
-    /* 每完成一组(ADC0+ADC1)采样 +1。
+    /* 每完成一次 ADC0 采样 +1。
      * 主循环据此判断"有新样本", 避免把同一组数据反复打印/反复写 DAC。
      * 计数频率 = ADC 采样率 = 50Hz(见 adc_init 的 FS = ADC_SPS_50)。 */
     g_adc_seq++;

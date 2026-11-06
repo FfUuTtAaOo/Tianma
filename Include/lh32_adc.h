@@ -3,18 +3,18 @@
 
 #include "lh32m0xx_lhl.h"
 
-/* 双ADC同步采样结果, 由 DMA 通道0 以分散聚合模式搬运至此 */
+/* 单ADC采样结果, 由 DMA 通道0 以分散聚合模式搬运至此。
+ * ADC0 只做一路差分采样: AINP = AIN0, AINM = AIN1。 */
 typedef struct {
-    uint32_t    ADC0_Data;
-    uint32_t    ADC1_Data;
-} ADC_DoubleData_t;
+    volatile uint32_t   ADC_Data;
+} ADC_DataBuffer_t;
 
 /* DMA 搬运目标缓冲区
  * 必须定义为全局(或 static 全局), 不能放在 adc_init() 的栈上:
  * adc_init() 返回后栈空间会被其他函数复用, DMA 持续写入会破坏调用栈。 */
-extern ADC_DoubleData_t dADCBuffer;
+extern ADC_DataBuffer_t dADCBuffer;
 
-/* 采样序号: DMA 通道0 中断里每完成一组(ADC0+ADC1)采样 +1。
+/* 采样序号: DMA 通道0 中断里每完成一次采样 +1。
  * 主循环据此判断"有新样本", 也用于串口按采样率(50Hz)打印, 不重复打印同一组。
  * ⚠️ 只能读, 不要在主循环里自增。 */
 extern volatile uint32_t g_adc_seq;
@@ -37,7 +37,7 @@ extern volatile uint32_t g_dma0_init_ret;
 /* PGA 增益: 外部已做信号调理, 送到引脚的是"伏级"电压 -> 用 ×1 */
 #define SENSOR_PGA          ADC_PGA_GAIN_1
 
-void adc_init(void);        /* 配置 ADC0/ADC1 + DMAMUX + DMA TCD, 并使能并启动采样 */
-void adc_start(void);       /* 启动 ADC0/ADC1 转换(软件触发, 连续转换模式) */
+void adc_init(void);        /* 配置 ADC0(AIN0/AIN1 差分) + DMAMUX + DMA, 并使能并启动采样 */
+void adc_start(void);       /* 启动 ADC0 转换(软件触发, 连续转换模式) */
 
 #endif

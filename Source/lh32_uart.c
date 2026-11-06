@@ -1,4 +1,5 @@
 #include "lh32_uart.h"
+#include "lh32_gpio.h"          /* RS485_TX / RS485_RX: WS3085 方向控制 */
 
 /* ---- 串口引脚(改线只改这几行) ----
  * P1.5 = SIN0(RX), P1.6 = SOUT0(TX), 115200 8N1 */
@@ -31,6 +32,9 @@ void uart_init(void)
 {
     GPIO_InitTypeDef GPIO_InitStructure;
     UART_InitTypeDef UART_InitStructure;
+
+    /* 上电默认处于接收态: RS485 总线由其他节点驱动时本机不能抢总线 */
+    RS485_RX;
 
     /* Configure UART GPIO multiplexing pins */
     GPIO_InitStructure.Pin = UART_RX_PIN;
@@ -112,9 +116,21 @@ void UART0_IRQHandler(void)
 }
 
 /* 阻塞式发送: 每写一个字节前先等 THRE, 避免覆盖还没移出的数据。
- * 只在主循环里调用(不要在中断里用)。 */
+ * 只在主循环里调用(不要在中断里用)。
+ *
+ * RS485 半双工方向控制(WS3085, DE/RE 共用一个引脚):
+ *   发送前 DE=1 抢占总线 -> 发完必须等 TEMT(移位寄存器也空) 再 DE=0,
+ *   否则最后一个字节的停止位会被截断, 从机收到的是坏帧。 */
 void uart_send(const uint8_t *data, uint16_t len)
 {
+    if ((data == 0) || (len == 0u))
+    {
+        return;
+    }
+
+    RS485_TX;                                                   /* 切到发送 */
+    LHL_Delay_uS(1);                                            /* 等收发器方向建立 */
+
     while (len--)
     {
         while ((pUART0->LSR & UART_FLAG_THRE) == 0u)
@@ -122,4 +138,33 @@ void uart_send(const uint8_t *data, uint16_t len)
         }
         LHL_UART_WriteData(pUART0, *data++);
     }
+
+    while ((pUART0->LSR & UART_FLAG_TEMT) == 0u)                /* 最后一个字节完全移出 */
+    {
+    }
+
+    RS485_RX;                                                   /* 释放总线, 切回接收 */
+}
+
+/* printf 重定向(见 Include/lh32m0xx_lhl.h, 已关闭库里的默认实现)。
+ * MicroLIB 的 printf 是逐字符调 fputc, 所以这里每发一个字节都要自己控制方向;
+ * 调试打印用, 命令应答请走 uart_send(整帧一个发送窗口)。 */
+int fputc(int ch, FILE *f)
+{
+    (void)f;
+
+    RS485_TX;
+    LHL_Delay_uS(1);
+
+    while ((pUART0->LSR & UART_FLAG_THRE) == 0u)
+    {
+    }
+    LHL_UART_WriteData(pUART0, (uint8_t)ch);
+    while ((pUART0->LSR & UART_FLAG_TEMT) == 0u)
+    {
+    }
+
+    RS485_RX;
+
+    return ch;
 }

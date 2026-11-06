@@ -1,18 +1,18 @@
 #include "lh32_adc.h"
 
 /* Private Define ------------------------------------------------------------*/
-#define TCD_COUNT 2
+#define TCD_COUNT 1
 
 /* Global Variable -----------------------------------------------------------*/
 DMA_HandleTypeDef hDMA0;
 
-/* Dual ADC data buffer
+/* ADC0 数据缓冲
  * 注意: 必须是全局变量, 不能是 adc_init() 的局部变量。
  * DMA 会持续向该地址写数据, 若放在栈上, 函数返回后栈空间被复用,
  * 采样结果会丢失/破坏调用栈。 */
-ADC_DoubleData_t dADCBuffer;
+ADC_DataBuffer_t dADCBuffer;
 
-/* 每完成一组双通道采样 +1(在 DMA1_CH0_IRQHandler 中自增) */
+/* 每完成一次采样 +1(在 DMA1_CH0_IRQHandler 中自增) */
 volatile uint32_t g_adc_seq;
 
 /* LHL_DMA_Init(&hDMA0) 的返回值(供 Debug 观察):
@@ -34,9 +34,8 @@ void adc_init(void)
     REF_InitStructure.VDRIVE = REF_INTERNAL_OFF;                    // Disable VDrive output
     LHL_REF_Init(&REF_InitStructure);
 
-    /* Initialize ADC0 and ADC1, set synchronization, and enable DMA */
-    ADC_InitStructure.AINP = ADC0_AINP_AIN0;                            // ADC0 = AIN0 = FZ
-    ADC_InitStructure.AINM = ADC0_AINP_AIN1;
+    ADC_InitStructure.AINP = ADC0_AINP_AIN0;                            // AINP = AIN0
+    ADC_InitStructure.AINM = ADC0_AINM_AIN1;                            // AINM = AIN1
     ADC_InitStructure.FS = ADC_SPS_50;                              // Output rate
     ADC_InitStructure.PGA = SENSOR_PGA;                             // 与外部调理电路输出范围匹配(见 lh32_adc.h)
     ADC_InitStructure.Code = ADC_CODE_BIPOLAR;                      // 力是双向的, 必须用双极性码(单极性会削掉负向力)
@@ -49,12 +48,6 @@ void adc_init(void)
     ADC_InitStructure.Reference = ADC_VREF_MV;
     LHL_ADC_Init(ADC_0, &ADC_InitStructure);
 
-    ADC_InitStructure.AINP = ADC0_AINP_AIN2;                            // ADC1 = AIN1 = FX
-    ADC_InitStructure.AINM = ADC0_AINP_AIN3;
-    LHL_ADC_Init(ADC_1, &ADC_InitStructure);                        // Apart from the channel, the configurations of ADC1 and ADC0 are exactly the same.
-
-    LHL_ADC_SetSync(ENABLE);
-
     LHL_ADC_DMACmd(ADC_0, ENABLE);                                  // Enable the DMA function of ADC0
 
     /* Configure DMAUX: The request source for DMA channel 0 is from ADC0. */
@@ -64,39 +57,31 @@ void adc_init(void)
     DMAMUX_InitStructure.Cmd = ENABLE;
     LHL_DMAMUX_Init(&DMAMUX_InitStructure);
 
-    /* Configure DMA channel 0: Transfer data from ADC0 and ADC1 */
+    /* Configure DMA channel 0: Transfer data from ADC0 */
     hDMA0.Channel = DMA_CHANNEL_0;
     hDMA0.Mode = DMA_SCATTER_GATHER_MODE;
     hDMA0.Request = DMA_HARDWARE_REQUEST;
-    hDMA0.TCD_Count = TCD_COUNT;                                        // Two TCDs are respectively used for ADC0 and ADC1.
+    hDMA0.TCD_Count = TCD_COUNT;                                        // 单通道只需要一个 TCD
     hDMA0.TCD_List = TCD_Quene;                                         // TCD linked list
     hDMA0.TCD_Init = DMA_InitStructure;                                 // TCD initialization queue
 
-    DMA_InitStructure[0].Direction = DMA_PERIPH_TO_MEMORY;              // TCD0 is used for ADC0
+    DMA_InitStructure[0].Direction = DMA_PERIPH_TO_MEMORY;
     DMA_InitStructure[0].Src_Address = (uint32_t)(&pADC->ADC_DATA_0);
-    DMA_InitStructure[0].Dest_Address = (uint32_t)&dADCBuffer.ADC0_Data;// Point to the cache area ADC0
+    DMA_InitStructure[0].Dest_Address = (uint32_t)&dADCBuffer.ADC_Data; // Point to the cache area
     DMA_InitStructure[0].Data_Width = DMA_DATA_WIDTH_4B;
     DMA_InitStructure[0].Data_Size = 1;
     DMA_InitStructure[0].Repetition = 1;
     DMA_InitStructure[0].Trans_Mode = DMA_CYCLIC_TRANSMISSION;
-    DMA_InitStructure[0].TCD_Address = (int32_t)&TCD_Quene[1];          // After completion, load TCD1
+    DMA_InitStructure[0].TCD_Address = (int32_t)&TCD_Quene[0];          // 完成后重新装载自己, 实现连续搬运
+    /* ⚠️ 这里必须是 DISABLE。
+     * Auto_Start 会置 CSR 的 START 位, 它的含义是"软件发起一次传输", 不需要任何
+     * 硬件请求; 配合 TCD 指向自己就变成: 装载 TCD -> 立即传输 -> 主循环完成中断
+     * -> 再装载 TCD -> 再立即传输 ... 死循环, 表现为一开 NVIC 就永远在 DMA 中断里。
+     * 关掉后每次传输都由 ADC0 的 DRDY 请求触发, 中断里清标志即可继续。 */
     DMA_InitStructure[0].Auto_Start = DISABLE;
-    DMA_InitStructure[0].INT_Major = DISABLE;
+    DMA_InitStructure[0].INT_Major = ENABLE;                            // Trigger the DMA0 main interrupt upon completion
     DMA_InitStructure[0].INT_Half = DISABLE;
     DMA_InitStructure[0].Chaining = TO_DMA_CHANNEL_NONE;
-
-    DMA_InitStructure[1].Direction = DMA_PERIPH_TO_MEMORY;              // TCD1 is used for ADC1
-    DMA_InitStructure[1].Src_Address = (uint32_t)(&pADC->ADC_DATA_1);
-    DMA_InitStructure[1].Dest_Address = (uint32_t)&dADCBuffer.ADC1_Data;// Point to the cache area ADC1
-    DMA_InitStructure[1].Data_Width = DMA_DATA_WIDTH_4B;
-    DMA_InitStructure[1].Data_Size = 1;
-    DMA_InitStructure[1].Repetition = 1;
-    DMA_InitStructure[1].Trans_Mode = DMA_CYCLIC_TRANSMISSION;
-    DMA_InitStructure[1].TCD_Address = (int32_t)&TCD_Quene[0];          // After completion, load TCD0
-    DMA_InitStructure[1].Auto_Start = ENABLE;
-    DMA_InitStructure[1].INT_Major = ENABLE;                            // Trigger the DMA0 main interrupt upon completion
-    DMA_InitStructure[1].INT_Half = DISABLE;
-    DMA_InitStructure[1].Chaining = TO_DMA_CHANNEL_NONE;
     g_dma0_init_ret = (uint32_t)LHL_DMA_Init(&hDMA0);
 
     /* LHL_DMA_Init 在控制器 ACTIVE 时直接返回 LHL_BUSY(2) 且什么都不配,
@@ -107,10 +92,12 @@ void adc_init(void)
         return;
     }
 
-    /* 使能 DMA 通道0 中断: TCD1 已置 INT_Major, 但 CPU 侧 NVIC 也必须打开 */
+    /* 使能 DMA 通道0 中断: TCD 已置 INT_Major, 但 CPU 侧 NVIC 也必须打开。
+     * 先把 DMA 的中断标志清一次, 再开 NVIC, 避免残留标志一开中断就进 ISR。 */
+    LHL_DMA_ClearPending(DMA_CHANNEL_0);
     NVIC_ClearPendingIRQ(DMA1_CH0_IRQn);
+    NVIC_SetPriority(DMA1_CH0_IRQn, 1);                                            // 设置NVIC优先级为1
     NVIC_EnableIRQ(DMA1_CH0_IRQn);
-    NVIC_SetPriority(DMA1_CH0_IRQn, 0);                                            // 设置NVIC优先级为1
 
     /* 使能 DMA 通道0 的请求 (ADC0 触发请求源) */
     LHL_DMA_Start(&hDMA0);
@@ -121,12 +108,11 @@ void adc_init(void)
 }
 
 /**
-  * @brief  启动 ADC0/ADC1 转换
+  * @brief  启动 ADC0 转换
   * @param  None
   * @retval None
   */
 void adc_start(void)
 {
     LHL_ADC_Start(ADC_0);
-    LHL_ADC_Start(ADC_1);
 }

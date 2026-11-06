@@ -433,6 +433,11 @@
               <FileType>1</FileType>
               <FilePath>..\..\Source\lh32_eeprom.c</FilePath>
             </File>
+            <File>
+              <FileName>rs485_cmd.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\Source\rs485_cmd.c</FilePath>
+            </File>
           </Files>
         </Group>
         <Group>
