@@ -16,6 +16,7 @@ extern volatile ZERO_Params_t g_zero;
 /* ---------------------------- 帧格式 ----------------------------
  *   AA 55 <cmd> [payload] 0D 0A
  *   cmd 应答 = cmd | 0x80
+ *   例外: 0x38 读系数按上位机既有解析, 应答 cmd 仍是 0x38
  *   数据帧 cmd = 0x02(连续发送) / 0x03(单次采集)
  * ----------------------------------------------------------------- */
 #define PROTO_HEAD0             0xAAu
@@ -27,6 +28,9 @@ extern volatile ZERO_Params_t g_zero;
 #define PROTO_CMD_START         0x02u   /* 开始连续发送      -> 数据帧 02 */
 #define PROTO_CMD_SINGLE        0x03u   /* 单次采集          -> 数据帧 03 */
 #define PROTO_CMD_BAUD          0x04u   /* 切波特率 + 1B 参数 -> 先 ACK 84 再切换 */
+#define PROTO_CMD_SN_READ       0x05u   /* 读序列号 -> AA 55 85 <ASCII> 0D 0A */
+#define PROTO_CMD_VERSION       0x06u   /* 读版本   -> AA 55 86 01 00 00 0D 0A */
+#define PROTO_CMD_SN_WRITE      0x0Au   /* 写序列号 + ASCII 1..15B -> AA 55 8A <状态> 0D 0A */
 #define PROTO_CMD_COEF          0x20u   /* 写系数 + 1B 序号 + 4B float -> ACK A0 */
 #define PROTO_CMD_ZERO          0x30u   /* 清零(采 20 点取平均)-> ACK B0 */
 #define PROTO_CMD_OUT_HEX       0x31u   /* HEX 格式输出      -> ACK B1 */
@@ -35,6 +39,22 @@ extern volatile ZERO_Params_t g_zero;
 #define PROTO_CMD_RAW_MV        0x34u   /* 原始电压值(mV)    -> ACK B4 */
 #define PROTO_CMD_UNIT_N        0x35u   /* 单位 N (kg×9.80665)-> ACK B5 */
 #define PROTO_CMD_ZERO_CANCEL   0x36u   /* 取消清零          -> ACK B6 */
+#define PROTO_CMD_COEF_ASCII    0x37u   /* 读 a/b/c -> 裸 ASCII "a = .. b = .. c = .." (无帧头帧尾) */
+#define PROTO_CMD_COEF_READ     0x38u   /* 读单个系数 + 1B 序号 -> AA 55 38 <序号> <4B float 大端> 0D 0A */
+
+/* ------------------------ 序列号 / 版本号 ------------------------ */
+/*: 固件里 sn[] 的长度, 序列号最多 15 个字符(不含结尾 NUL) */
+#define PROTO_SN_MAX_LEN        15u
+
+/*: 0x0A 应答里的状态字节 */
+#define PROTO_SN_OK             0x00u   /* 已保存 */
+#define PROTO_SN_ERR_FORMAT     0x01u   /* 长度或字符非法 */
+#define PROTO_SN_ERR_WRITE      0x02u   /* EEPROM 写失败 */
+
+/*: 固件版本, 默认 01.00.00 -> 0x06 回复 01 00 00 */
+#define PROTO_VER_MAJOR         1u
+#define PROTO_VER_MINOR         0u
+#define PROTO_VER_PATCH         0u
 
 void uart_process(void);
 
