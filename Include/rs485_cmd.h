@@ -52,10 +52,13 @@ extern volatile ZERO_Params_t g_zero;
 #define PROTO_SN_ERR_FORMAT     0x01u   /* 长度或字符非法 */
 #define PROTO_SN_ERR_WRITE      0x02u   /* EEPROM 写失败 */
 
-/*: 固件版本, 默认 01.00.00 -> 0x06 回复 01 00 00 */
+/*: 固件版本 -> 0x06 回复 01 00 02
+ *  01.00.00  首个完整协议版本(含 0x0A 写序列号)
+ *  01.00.01  增加系数 k(20 04 / 0x38 序号 04), 修上电首帧丢失
+ *  01.00.02  RX FIFO + DE 建立时间, 修上位机端口刚打开时首帧被吞 */
 #define PROTO_VER_MAJOR         1u
 #define PROTO_VER_MINOR         0u
-#define PROTO_VER_PATCH         1u
+#define PROTO_VER_PATCH         2u
 
 void uart_process(void);
 

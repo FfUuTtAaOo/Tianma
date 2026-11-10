@@ -88,10 +88,11 @@ int main(void)
 
     zero_init();
 
-    uart_rx_count = 0;
-    uart_tx_count = 0;
-
+#if (UART_DEBUG)
+    /* 调试问候语: 打开后会在上电时占用总线约 1ms, 和主机的第一条指令撞车,
+     * 所以只在调试时编译。 */
     printf("hello world111\r\n");
+#endif
 
     while(1) {
         /* ---- 1) 24位补码 -> 有符号, 换算成传感器输入电压(mV) ---- */

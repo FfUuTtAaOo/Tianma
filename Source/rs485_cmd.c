@@ -523,7 +523,7 @@ static void proto_exec(void)
 
     case PROTO_CMD_VERSION:
     {
-        /* AA 55 86 01 00 00 0D 0A -> 版本 01.00.00 */
+        /* AA 55 86 01 00 02 0D 0A -> 版本 01.00.02 */
         uint8_t frame[8];
 
         frame[0] = PROTO_HEAD0;

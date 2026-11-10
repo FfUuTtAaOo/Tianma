@@ -20,6 +20,25 @@
  * 正常情况下 IER 只开了 ERBFI, 不可能走到这里。 */
 #define UART_RX_SPURIOUS_MAX 64u
 
+/* ---- RX FIFO (FCR) ----
+ * 这颗 UART 与 DesignWare 兼容: 偏移 0x08 读是 IIR, **写是 FCR**。
+ * 库函数 LHL_UART_Init 只配波特率/LCR, 从来没写过 FCR, FIFO 是否打开
+ * 完全取决于复位值。这里显式打开 16 字节接收 FIFO:
+ *   - 触发深度保持 1 字节(bit7:6=00), 中断延迟和现在一样, 不牺牲实时性;
+ *   - 主循环里较长的不被打断的段落(读 EEPROM、uart_send 等)期间,
+ *     接收最多能攒 16 字节, ISR 晚来几十微秒也不会丢整帧开头。
+ * 上电阶段收到的第一条指令正好落在这类窗口里, 所以这条对"首帧无响应"
+ * 有直接帮助; 中断里 0x0C(字符超时) 分支本来就已经处理了。 */
+#define UART_FCR_RX_EN          0x01u
+#define UART_FCR_RX_RESET       0x02u
+#define UART_FCR_TX_RESET       0x04u
+#define UART_FCR_TRIGGER_1      0x00u
+
+/* DE 拉高后到第一个起始位之间留一点建立时间。
+ * WS3085 的 DE 使能只要几十 ns, 但兼容芯片和长线缆会慢一些;
+ * 16MHz 下 CoreClockShift=0, 8 次空循环约 2µs, 对 50Hz 上报完全无感。 */
+#define RS485_DE_SETTLE()       LHL_Delay_uS(8u)
+
 uint8_t uart_buffer[UART_SIZE] = {0};       // 串口收发缓存
 volatile uint8_t uart_rx_count = 0;
 volatile uint8_t uart_tx_count = 0;
@@ -40,7 +59,7 @@ void uart_init(void)
     GPIO_InitStructure.Pin = UART_RX_PIN;
     GPIO_InitStructure.Mode = GPIO_MODE_INPUT;
     GPIO_InitStructure.Current = GPIO_CURRENT_4mA;
-    GPIO_InitStructure.Pull = GPIO_NOPULL;          // 悬空时钳在空闲高电平, 避免噪声被当成数据帧
+    GPIO_InitStructure.Pull = GPIO_NOPULL;          // RO 是推挽输出, 不需要上下拉
     GPIO_InitStructure.SchmittTrigger = ENABLE;
     GPIO_InitStructure.Alternate = UART_RX_AF;
     LHL_GPIO_Init(UART_RX_PORT, &GPIO_InitStructure);                           // UART_RX
@@ -60,15 +79,31 @@ void uart_init(void)
     UART_InitStructure.UART_Parity = UART_Parity_None;                          // parity: None
     LHL_UART_Init(pUART0, &UART_InitStructure);
 
-//    /* 清掉复位/上电过程中可能残留的接收数据, 否则一开中断就立刻进一次 */
-//    while ((pUART0->LSR & UART_FLAG_DR) != 0u)
-//    {
-//        (void)LHL_UART_ReadData(pUART0);
-//    }
+    /* ⚠️ 顺序很重要: 必须先把环形缓冲指针清零/把引脚上电期间的残留字节清掉,
+     * 再打开接收中断。main() 里原来在初始化全部结束后才清零这两个指针,
+     * 结果是"上电头几十毫秒内收到的第一帧"已经被中断存进缓冲, 随后又被清零,
+     * 表现为开机后第一条指令不管是什么都没有回应, 第二条才正常。
+     * 现在指针在开中断前就归零, 初始化期间收到的帧会留在缓冲里, 主循环一跑就处理。 */
+    uart_rx_count = 0u;
+    uart_tx_count = 0u;
+
+    /* 打开并清空 RX/TX FIFO（写 IIR 的地址就是写 FCR, 见上面说明）。
+     * 必须先于下面的"清残留字节"和开中断, 否则 FIFO 里上电期间的旧字节
+     * 会和主机的第一帧粘在一起。 */
+    pUART0->IIR = (UART_FCR_RX_EN | UART_FCR_RX_RESET | UART_FCR_TX_RESET
+                   | UART_FCR_TRIGGER_1);
+
+    /* 清掉复位/上电过程中可能残留在接收寄存器里的字节和线路错误标志,
+     * 否则一开中断就立刻进一次, 把噪声当成数据帧的开头。 */
+    while ((pUART0->LSR & UART_FLAG_DR) != 0u)
+    {
+        (void)LHL_UART_ReadData(pUART0);
+    }
+    (void)pUART0->LSR;                                 /* 读 LSR 清 OE/FE/PE/BI */
 
     /* 开启UART中断并设置优先级 */
     LHL_UART_ITConfig(pUART0, UART_IT_ERBFI, ENABLE);                           // 使能UART0接收中断
-//    NVIC_ClearPendingIRQ(UART0_IRQn);
+    NVIC_ClearPendingIRQ(UART0_IRQn);                                           // 清掉上电残留的 pending
     NVIC_EnableIRQ(UART0_IRQn);                                                 // 开启NVIC中断
     NVIC_SetPriority(UART0_IRQn, 1);                                            // 设置NVIC优先级为1
 }
@@ -129,7 +164,7 @@ void uart_send(const uint8_t *data, uint16_t len)
     }
 
     RS485_TX;                                                   /* 切到发送 */
-    LHL_Delay_uS(1);                                            /* 等收发器方向建立 */
+    RS485_DE_SETTLE();                                          /* 等收发器方向建立 */
 
     while (len--)
     {
@@ -171,7 +206,7 @@ int fputc(int ch, FILE *f)
     (void)f;
 
     RS485_TX;
-    LHL_Delay_uS(1);
+    RS485_DE_SETTLE();
 
     while ((pUART0->LSR & UART_FLAG_THRE) == 0u)
     {
