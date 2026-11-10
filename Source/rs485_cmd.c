@@ -21,15 +21,17 @@ static uint8_t  stream_on;              /* 0x02 打开, 0x01 关闭 */
 static uint8_t  single_pend;            /* 0x03 请求, 等下一个新采样应答 */
 static float    latest_mv;
 
-/* y = a*x^2 + b*x + c, x 单位 mV, y 单位 kg。
- * 默认 a=0,b=1,c=0: 未标定时直接输出电压读数, 写入系数后即按多项式换算。 */
+/* y = a*x^2 + b*x + c, x 单位 mV, y 单位 kg; 最终输出再乘 k。
+ * 默认 a=0,b=1,c=0,k=1: 未标定时直接输出电压读数, 写入系数后即按多项式换算。 */
 static float    coef_a = 0.0f;
 static float    coef_b = 1.0f;
 static float    coef_c = 0.0f;
+static float    coef_k = 1.0f;
 
-/* a/b/c 在 AT24C04 中的布局: 0x00~0x03 = a, 0x04~0x07 = b, 0x08~0x0B = c */
+/* 系数在 AT24C04 中的布局: 0x00~0x03 = a, 0x04~0x07 = b, 0x08~0x0B = c,
+ * 0x0C~0x0F = k。老版本只写了前 12 字节, 0x0C 起还是全 F, 此时 k 用默认 1.0。 */
 #define COEF_EEPROM_ADDR        0x0000u
-#define COEF_EEPROM_BYTES       12u
+#define COEF_EEPROM_BYTES       16u
 
 /* 序列号在 AT24C04 中的布局: 0xB0~0xBF 一整页(16 字节), 末尾补 0x00 */
 #define SN_EEPROM_ADDR          0x00B0u
@@ -123,8 +125,9 @@ static void coef_store(void)
     put_f32_be(&buf[0], coef_a);
     put_f32_be(&buf[4], coef_b);
     put_f32_be(&buf[8], coef_c);
+    put_f32_be(&buf[12], coef_k);
 
-    /* 逐字节写, 内部每字节等满一个写周期; 12 字节约 60ms */
+    /* 逐字节写, 内部每字节等满一个写周期; 16 字节约 80ms */
     (void)at24c04_write(COEF_EEPROM_ADDR, buf, COEF_EEPROM_BYTES);
 }
 
@@ -133,7 +136,7 @@ static void coef_load(void)
     uint8_t buf[COEF_EEPROM_BYTES];
     uint8_t i;
     uint8_t all_ff = 1u;
-    float   a, b, c;
+    float   a, b, c, k;
 
     if (at24c04_read(COEF_EEPROM_ADDR, buf, COEF_EEPROM_BYTES) != LHL_OK)
     {
@@ -157,14 +160,20 @@ static void coef_load(void)
     b = get_f32_be(&buf[4]);
     c = get_f32_be(&buf[8]);
 
-    if ((coef_is_valid(a) == 0u) || (coef_is_valid(b) == 0u) || (coef_is_valid(c) == 0u))
+    if ((coef_is_valid(a) != 0u) && (coef_is_valid(b) != 0u)
+        && (coef_is_valid(c) != 0u))
     {
-        return;                             /* 数据损坏(写一半掉电等): 用默认值 */
+        coef_a = a;
+        coef_b = b;
+        coef_c = c;
     }
 
-    coef_a = a;
-    coef_b = b;
-    coef_c = c;
+    /* k 单独判断: 老版本固件只写过 12 字节, 0x0C 起是全 F(NaN), 保留默认 1.0 */
+    k = get_f32_be(&buf[12]);
+    if (coef_is_valid(k) != 0u)
+    {
+        coef_k = k;
+    }
 }
 
 /* ---------------------- 序列号掉电保存(AT24C04) ---------------------- */
@@ -328,6 +337,8 @@ static uint16_t fmt_coef_ascii(char *buf)
     n += put_float6(&buf[n], coef_b);
     n += put_str(&buf[n], " c = ");
     n += put_float6(&buf[n], coef_c);
+    n += put_str(&buf[n], " k = ");
+    n += put_float6(&buf[n], coef_k);
     buf[n++] = '\r';
     buf[n++] = '\n';
     return n;
@@ -341,11 +352,11 @@ static void send_value(uint8_t cmd, float mv)
     float v;
 
     if (meas_mode == MEAS_MV) {
-        v = mv;
+        v = mv;                             /* 原始电压不做系数换算, 也不乘 k */
     } else if (meas_mode == MEAS_N) {
-        v = y * GRAVITY;
+        v = y * GRAVITY * coef_k;
     } else {
-        v = y;
+        v = y * coef_k;
     }
 
     if (out_mode == OUT_ASCII) {
@@ -479,12 +490,13 @@ static void proto_exec(void)
         case 1u: coef_a = f; break;
         case 2u: coef_b = f; break;
         case 3u: coef_c = f; break;
+        case 4u: coef_k = f; break;
         default: break;
         }
         proto_ack(PROTO_CMD_COEF);
-        if ((p_buf[0] >= 1u) && (p_buf[0] <= 3u))
+        if ((p_buf[0] >= 1u) && (p_buf[0] <= 4u))
         {
-            coef_store();                   /* 应答先发, 再落盘(约 60ms) */
+            coef_store();                   /* 应答先发, 再落盘(约 80ms) */
         }
         break;
     }
@@ -595,9 +607,10 @@ static void proto_exec(void)
 
     case PROTO_CMD_COEF_ASCII:
     {
-        /* 裸文本, 不带 AA 55 / 0D 0A 帧: "a = 1.000000 b = 7.000000 c = 0.000000\r\n"
-         * 最坏情况每个数 18 字符(-1000000000.000000), 3 个数 + 前缀 + 结尾 < 80 */
-        char     buf[80];
+        /* 裸文本, 不带 AA 55 / 0D 0A 帧:
+         * "a = 1.000000 b = 7.000000 c = 0.000000 k = 2.000000\r\n"
+         * 最坏情况每个数 18 字符(-1000000000.000000), 4 个数 + 前缀 + 结尾 < 112 */
+        char     buf[112];
         uint16_t n = fmt_coef_ascii(buf);
         uart_send((const uint8_t *)buf, n);
         break;
@@ -605,7 +618,7 @@ static void proto_exec(void)
 
     case PROTO_CMD_COEF_READ:
     {
-        /* AA 55 38 <01/02/03> <4B float 大端> 0D 0A
+        /* AA 55 38 <01/02/03/04> <4B float 大端> 0D 0A
          * 应答 cmd 按上位机示例保持 0x38, 不置 0x80 */
         uint8_t frame[10];
         float   v;
@@ -615,6 +628,7 @@ static void proto_exec(void)
         case 1u: v = coef_a; break;
         case 2u: v = coef_b; break;
         case 3u: v = coef_c; break;
+        case 4u: v = coef_k; break;
         default: v = 0.0f;   break;     /* 非法序号: 回 0, 避免上位机干等超时 */
         }
 

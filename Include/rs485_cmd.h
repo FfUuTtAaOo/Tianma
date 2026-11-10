@@ -31,7 +31,8 @@ extern volatile ZERO_Params_t g_zero;
 #define PROTO_CMD_SN_READ       0x05u   /* 读序列号 -> AA 55 85 <ASCII> 0D 0A */
 #define PROTO_CMD_VERSION       0x06u   /* 读版本   -> AA 55 86 01 00 00 0D 0A */
 #define PROTO_CMD_SN_WRITE      0x0Au   /* 写序列号 + ASCII 1..15B -> AA 55 8A <状态> 0D 0A */
-#define PROTO_CMD_COEF          0x20u   /* 写系数 + 1B 序号 + 4B float -> ACK A0 */
+#define PROTO_CMD_COEF          0x20u   /* 写系数 + 1B 序号 + 4B float -> ACK A0
+                                         * 序号: 01=a 02=b 03=c 04=k(最终倍数, 默认 1) */
 #define PROTO_CMD_ZERO          0x30u   /* 清零(采 20 点取平均)-> ACK B0 */
 #define PROTO_CMD_OUT_HEX       0x31u   /* HEX 格式输出      -> ACK B1 */
 #define PROTO_CMD_OUT_ASCII     0x32u   /* ASCII 格式输出    -> ACK B2 */
@@ -39,7 +40,7 @@ extern volatile ZERO_Params_t g_zero;
 #define PROTO_CMD_RAW_MV        0x34u   /* 原始电压值(mV)    -> ACK B4 */
 #define PROTO_CMD_UNIT_N        0x35u   /* 单位 N (kg×9.80665)-> ACK B5 */
 #define PROTO_CMD_ZERO_CANCEL   0x36u   /* 取消清零          -> ACK B6 */
-#define PROTO_CMD_COEF_ASCII    0x37u   /* 读 a/b/c -> 裸 ASCII "a = .. b = .. c = .." (无帧头帧尾) */
+#define PROTO_CMD_COEF_ASCII    0x37u   /* 读 a/b/c/k -> 裸 ASCII "a = .. b = .. c = .. k = .." (无帧头帧尾) */
 #define PROTO_CMD_COEF_READ     0x38u   /* 读单个系数 + 1B 序号 -> AA 55 38 <序号> <4B float 大端> 0D 0A */
 
 /* ------------------------ 序列号 / 版本号 ------------------------ */
@@ -54,7 +55,7 @@ extern volatile ZERO_Params_t g_zero;
 /*: 固件版本, 默认 01.00.00 -> 0x06 回复 01 00 00 */
 #define PROTO_VER_MAJOR         1u
 #define PROTO_VER_MINOR         0u
-#define PROTO_VER_PATCH         0u
+#define PROTO_VER_PATCH         1u
 
 void uart_process(void);
 
