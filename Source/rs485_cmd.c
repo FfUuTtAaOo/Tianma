@@ -344,9 +344,7 @@ static uint16_t fmt_coef_ascii(char *buf)
     return n;
 }
 
-/* ============================== 数据发送 ============================== */
-
-static void send_value(uint8_t cmd, float mv)
+float value_calu(float mv)
 {
     float y = coef_a * mv * mv + coef_b * mv + coef_c;
     float v;
@@ -358,7 +356,13 @@ static void send_value(uint8_t cmd, float mv)
     } else {
         v = y * coef_k;
     }
+    return v;
+}
 
+/* ============================== 数据发送 ============================== */
+
+static void send_value(uint8_t cmd, float v)
+{
     if (out_mode == OUT_ASCII) {
         char     buf[32];
         uint16_t n = fmt_ascii(buf, v);

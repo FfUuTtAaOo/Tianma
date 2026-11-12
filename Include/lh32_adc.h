@@ -35,7 +35,7 @@ extern volatile uint32_t g_dma0_init_ret;
 #define ADC_VREF_MV         2500.0f
 
 /* PGA 增益: 外部已做信号调理, 送到引脚的是"伏级"电压 -> 用 ×1 */
-#define SENSOR_PGA          ADC_PGA_GAIN_1
+#define SENSOR_PGA          ADC_PGA_GAIN_128
 
 void adc_init(void);        /* 配置 ADC0(AIN0/AIN1 差分) + DMAMUX + DMA, 并使能并启动采样 */
 void adc_start(void);       /* 启动 ADC0 转换(软件触发, 连续转换模式) */

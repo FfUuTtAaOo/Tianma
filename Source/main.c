@@ -97,9 +97,9 @@ int main(void)
     while(1) {
         /* ---- 1) 24位补码 -> 有符号, 换算成传感器输入电压(mV) ---- */
         fz_raw = ((int32_t)dADCBuffer.ADC_Data << 8) >> 8;   /* AIN0 - AIN1 = FZ */
-
         /* 差分测量: Vin(mV) = 码/2^23 × Vref */
         g_fz_mv = (float)fz_raw / 8388608.0f * ADC_FULLSCALE_MV;
+        g_fz_mv = value_calu(g_fz_mv);
 
         if (g_zero.zero_flag == 1) {
             calib_zero_cale(g_fz_mv);

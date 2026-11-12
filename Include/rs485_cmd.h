@@ -70,4 +70,6 @@ void rs485_init(void);
  * 连续发送 / 单次采集的应答都在这里按当前输出格式发出去。 */
 void rs485_report(float voltage_mv);
 
+float value_calu(float mv);
+
 #endif
